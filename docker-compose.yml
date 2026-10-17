@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: demand_forecasting
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    command: uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/demand_forecasting
+    volumes:
+      - ./:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+  dashboard:
+    build: .
+    command: streamlit run apps/dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    environment:
+      API_BASE_URL: http://api:8000
+    volumes:
+      - ./:/app
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+
+volumes:
+  pg_data:
