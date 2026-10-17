@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hotel Demand Forecaster</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <h1>Hotel Demand Forecaster</h1>
+      <p class="sub">Spot busy dates early from public event listings, holidays and travel-interest data. Every claim links to its source.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card" aria-labelledby="form-h">
+      <h2 id="form-h">Where and when</h2>
+      <form id="forecast-form">
+        <div class="grid-form">
+          <label class="field wide">
+            <span>Hotel location</span>
+            <input name="location" required placeholder="City or full address, e.g. Austin, Texas" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>From</span>
+            <input type="date" name="start" required>
+          </label>
+          <label class="field">
+            <span>To</span>
+            <input type="date" name="end" required>
+          </label>
+          <label class="field">
+            <span>Event radius (km)</span>
+            <input type="number" name="radius_km" min="1" max="200" value="25" required>
+          </label>
+        </div>
+        <details class="sources-input">
+          <summary>Add local event pages <span class="muted">(optional)</span></summary>
+          <p class="hint">Paste up to 20 URLs, one per line: city or tourism-board event calendars, venue and convention-centre schedules, or <code>.ics</code> calendar feeds. Only events the page publishes as structured data (schema.org or iCal) are read, and only if the site's robots.txt allows it.</p>
+          <textarea name="source_urls" rows="4" placeholder="https://www.example-city.gov/events&#10;https://www.example-arena.com/calendar.ics"></textarea>
+        </details>
+        <div class="form-foot">
+          <button type="submit" id="submit-btn">Build forecast</button>
+          <span class="chip {{ 'chip-on' if ticketmaster_enabled else 'chip-off' }}">
+            Ticketmaster {{ 'connected' if ticketmaster_enabled else 'not connected — add TICKETMASTER_API_KEY to .env' }}
+          </span>
+          {% if not contact_set %}<span class="chip chip-off">Set SCRAPER_CONTACT in .env</span>{% endif %}
+        </div>
+      </form>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <div id="results" hidden>
+      <div id="warnings"></div>
+
+      <section class="card" aria-labelledby="periods-h">
+        <div class="card-head">
+          <h2 id="periods-h">Busiest dates</h2>
+          <p class="muted" id="loc-line"></p>
+        </div>
+        <ol id="periods" class="periods"></ol>
+      </section>
+
+      <section class="card" aria-labelledby="chart-h">
+        <div class="card-head">
+          <div>
+            <h2 id="chart-h">Daily demand index</h2>
+            <p class="muted">0–100. Bars above the seasonal baseline are driven by sourced events and holidays. Select a day for details.</p>
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="chart-box">
+          <svg id="chart" role="img" aria-label="Daily demand index chart"></svg>
+          <div id="tooltip" class="tooltip" hidden></div>
+        </div>
+        <div id="day-detail" class="day-detail" aria-live="polite"></div>
+        <details class="table-view">
+          <summary>Show as table</summary>
+          <div class="table-scroll"><table id="days-table"></table></div>
+        </details>
+      </section>
+
+      <section class="card" aria-labelledby="signals-h">
+        <div class="card-head">
+          <h2 id="signals-h">Events and travel periods found</h2>
+          <div class="filters" role="group" aria-label="Filter by kind">
+            <button type="button" class="filter is-on" data-kind="all">All</button>
+            <button type="button" class="filter" data-kind="event">Events</button>
+            <button type="button" class="filter" data-kind="holiday">Holidays</button>
+            <button type="button" class="filter" data-kind="long_weekend">Long weekends</button>
+          </div>
+        </div>
+        <div class="table-scroll"><table id="signals-table"></table></div>
+      </section>
+
+      <section class="card" aria-labelledby="season-h">
+        <div class="card-head">
+          <div>
+            <h2 id="season-h">Seasonal travel interest</h2>
+            <p class="muted" id="season-note"></p>
+          </div>
+        </div>
+        <div class="chart-box short">
+          <svg id="season-chart" role="img" aria-label="Seasonal interest by month"></svg>
+          <div id="season-tooltip" class="tooltip" hidden></div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="log-h">
+        <h2 id="log-h">Source log</h2>
+        <p class="muted">Every source checked for this forecast, including ones skipped because the site's robots.txt disallows automated access, a key was missing, or the page had no machine-readable events. API keys are redacted.</p>
+        <div class="table-scroll"><table id="log-table"></table></div>
+      </section>
+
+      <section class="card method" aria-labelledby="method-h">
+        <h2 id="method-h">How the index works</h2>
+        <p id="method-text"></p>
+      </section>
+    </div>
+  </main>
+
+  <script src="{{ url_for('static', path='app.js') }}"></script>
+</body>
+</html>
