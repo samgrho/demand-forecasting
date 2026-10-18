@@ -42,13 +42,28 @@ class ForecastIn(BaseModel):
     source_urls: list[str] = Field(default_factory=list, max_length=20)
 
 
+def asset_url(request: Request, path: str) -> str:
+    """Static URL with the file's modification time appended, so browsers fetch
+    a fresh copy whenever the file changes instead of reusing a cached one."""
+    version = int((HERE / "static" / path).stat().st_mtime)
+    return f"{request.app.url_path_for('static', path=path)}?v={version}"
+
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "index.html",
-        {"ticketmaster_enabled": bool(settings.ticketmaster_api_key), "contact_set": bool(settings.contact)},
+        {
+            "ticketmaster_enabled": bool(settings.ticketmaster_api_key),
+            "contact_set": bool(settings.contact),
+            "css_url": asset_url(request, "style.css"),
+            "js_url": asset_url(request, "app.js"),
+        },
     )
+    # The page itself is tiny; always revalidate so it points at current assets.
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.get("/api/health")
