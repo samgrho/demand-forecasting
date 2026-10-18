@@ -6,7 +6,15 @@ date range. The dashboard shows a daily demand index, the busiest stretches,
 and the events behind them. **Every event or travel claim links to the page it
 came from**, with the time it was fetched, so you can verify it.
 
-## Quick start (Windows / PowerShell)
+## Quick start (Windows)
+
+Double-click **`launch.bat`**. On the first run it creates the virtual
+environment, installs dependencies and creates `.env` from `.env.example`.
+It then starts the server in a minimized window and opens the dashboard.
+Double-click **`terminate.bat`** to stop the server.
+(`launch.bat --no-browser` starts it without opening a browser tab.)
+
+Or manually, in PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -32,6 +40,8 @@ In `.env`:
 | [Wikidata](https://www.wikidata.org/) | Notable events with an exact date in or near the city | No |
 | [Wikimedia pageviews](https://wikimedia.org/api/rest_v1/) | Monthly readership of the city's Wikipedia/Wikivoyage page, used as a seasonal travel-interest index | No |
 | Pages you add | City or tourism calendars, venue schedules, `.ics` feeds | No |
+| Wikidata + Wikipedia infoboxes | Venue capacities, to size events | No |
+| Wikipedia + Wikimedia pageviews | Headliners' monthly readership, a proxy for artist popularity | No |
 
 For pages you add, the app reads only events the publisher marks up for
 machines: schema.org `Event` JSON-LD or microdata, and iCalendar feeds,
@@ -68,19 +78,48 @@ including ones it skipped and why.
 ## How the demand index works
 
 ```
+event weight  = type weight × distance factor × venue-size factor × artist-popularity factor
 baseline(day) = 40 × seasonal factor for the month (pageviews, clamped 0.6–1.6)
 pressure(day) = Σ weights of events/holidays covering the day
               + 40% of the weight of big events starting the next day (arrival night)
+              − routine event load (the typical day of that weekday in the range)
 index(day)    = baseline + (100 − baseline) × (1 − e^(−pressure / 3))
 ```
 
 Levels: Quiet < 35 ≤ Normal < 52 ≤ Busy < 70 ≤ Very busy.
 
-Weights are rules of thumb: event type (festival, sports, conference > concert
-> theatre), distance from the hotel, and venue capacity when it is published.
-Multiple reports of the same event are merged, keeping every source. **The
-index is not fitted to any hotel's bookings.** Treat it as an early warning of
-which dates to check, not a booking forecast.
+**Type and distance.** Festival, sports and conferences weigh more than concerts,
+which weigh more than theatre. Weight halves at 15 km from the hotel.
+
+**Event size** (`app/sources/enrich.py`, `app/sizing.py`). Each multiplier is
+shown on the dashboard with its source:
+
+- *Venue capacity*: ×0.5 for a 100-seat room, ×1.3 at 10,000, up to ×1.7 for
+  a stadium. Capacities come from one Wikidata query covering every venue near
+  the hotel, with each venue's Wikipedia infobox as a fallback. A match needs
+  a distinctive shared word in the name (not "center" or "arena") and, when
+  coordinates exist, a location within 3 km. Venues found in neither source are
+  **assumed small (×0.7)**. That rule is shown as a model assumption with no
+  source link, because large venues are almost always documented.
+- *Artist popularity* (non-sports events): average monthly English Wikipedia
+  views over the last 12 months for the headliner or co-headliner. That's ×0.75
+  around 1k views/month, ×1.0 at 10k, ×1.25 at 100k, up to ×1.6 for global
+  stars. The article comes from Ticketmaster's own link, or from a search result
+  with the same name that Wikipedia describes as a musician, band, comedian and
+  so on. Up to 80 artists are looked up per forecast, biggest venues first.
+- Combined sizing is capped at ×0.4–×2.5. Ticket price is deliberately not used.
+
+**Routine event load.** Cities with shows every night would otherwise read
+"busy" every day. For ranges of four weeks or more, each day's event load is
+compared with the median for the same weekday (a Saturday against other
+Saturdays). For two to four weeks it's compared with the median day overall,
+and for shorter ranges nothing is subtracted. Holidays are never treated as
+routine.
+
+Multiple reports of the same event are merged, keeping every source. Ticketing
+add-ons (parking, early entry) and multi-day bundles that duplicate nightly
+listings are dropped. **The index is not fitted to any hotel's bookings.** Treat
+it as an early warning of which dates to check, not a booking forecast.
 
 ## Known limits
 
@@ -91,6 +130,12 @@ which dates to check, not a booking forecast.
 - Pages that render their calendars with JavaScript, or that don't use schema.org
   or iCal markup, yield nothing. The source log says so for each page.
 - Recurring iCal events (`RRULE`) count only their first occurrence.
+- Venue sizing is limited by what Wikidata and Wikipedia document. Some
+  mid-size venues are missed and fall back to the "assumed small" rule, either
+  because their capacity sits on an article with a different title or because
+  the infobox has no capacity.
+- Sports events are sized by venue only. Team popularity isn't measured, so a
+  routine regular-season game at a big arena counts about the same as a rivalry game.
 
 ## Layout
 
@@ -100,7 +145,9 @@ app/
   service.py       runs all sources concurrently, then scores
   forecast.py      demand index, busy periods, duplicate merging
   fetcher.py       polite HTTP: robots.txt, throttling, caching, redaction
-  sources/         geocode, holidays, ticketmaster, wikidata, pageviews, webpages
+  sizing.py        venue-size / popularity factors and name matching
+  sources/         geocode, holidays, ticketmaster, wikidata, pageviews, webpages,
+                   enrich (venue capacity + artist popularity)
   templates/, static/   dashboard (vanilla JS + SVG, light/dark)
 tests/             offline tests (HTTP mocked with respx)
 ```

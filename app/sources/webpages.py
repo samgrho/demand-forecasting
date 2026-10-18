@@ -16,7 +16,6 @@ no crawling. All fetches go through PoliteFetcher, so robots.txt is honoured.
 from __future__ import annotations
 
 import json
-import math
 import re
 from datetime import date, datetime, timedelta
 from urllib.parse import urljoin, urlsplit
@@ -25,7 +24,8 @@ from bs4 import BeautifulSoup
 from icalendar import Calendar
 
 from ..fetcher import FetchBlocked, FetchFailed, PoliteFetcher
-from ..models import Signal, Source, SourceCheck
+from ..models import Adjustment, Signal, Source, SourceCheck
+from ..sizing import capacity_factor, parse_capacity
 
 MAX_URLS = 20
 MAX_SPAN_DAYS = 31
@@ -106,16 +106,10 @@ def _text(value) -> str | None:
     return text or None
 
 
-def event_weight(types: list[str], title: str, capacity=None) -> float:
+def event_weight(types: list[str], title: str) -> float:
     weight = max((TYPE_WEIGHTS.get(t, 0) for t in types), default=0) or DEFAULT_WEIGHT
     if BIG_EVENT.search(title):
         weight = max(weight, 1.0)
-    try:
-        cap = float(capacity) if capacity is not None else None
-    except (TypeError, ValueError):
-        cap = None
-    if cap and cap > 0:
-        weight *= min(max(math.log10(cap) / 3.5, 0.5), 1.8)
     return round(weight, 3)
 
 
@@ -242,19 +236,25 @@ def to_signals(
         desc = ev.get("description")
         if desc and len(desc) > 240:
             desc = desc[:237].rstrip() + "…"
-        signals.append(
-            Signal(
-                kind="event",
-                title=title,
-                start=s,
-                end=e,
-                weight=event_weight(types, title, ev.get("capacity")),
-                sources=sources,
-                category=re.sub(r"(?<!^)(?=[A-Z])", " ", category) if category else None,
-                venue=ev.get("venue"),
-                description=desc or f"Listed on {publisher_of(page_url)}.",
-            )
+        venue = ev.get("venue")
+        sig = Signal(
+            kind="event",
+            title=title,
+            start=s,
+            end=e,
+            weight=event_weight(types, title),
+            sources=sources,
+            category=re.sub(r"(?<!^)(?=[A-Z])", " ", category) if category else None,
+            venue=venue,
+            venue_name=re.split(r" — |, ", venue)[0] if venue else None,
+            description=desc or f"Listed on {publisher_of(page_url)}.",
         )
+        capacity = parse_capacity(ev.get("capacity"))
+        if capacity:
+            sig.add_adjustment(
+                Adjustment("Venue capacity", capacity_factor(capacity), f"{capacity:,} attendees (published on the page)", [page_source])
+            )
+        signals.append(sig)
     return signals
 
 

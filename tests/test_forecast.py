@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from app import forecast
 from app.models import Signal, Source
@@ -85,3 +85,37 @@ def test_month_index_ignores_trend_and_spikes():
     idx = month_index(views)
     assert idx[7] > 1.6
     assert abs(idx[3] - idx[4]) < 0.01
+
+
+def test_routine_event_load_is_part_of_the_baseline():
+    start, end = date(2026, 11, 1), date(2026, 11, 28)
+    nightly = [sig(f"Club night {i}", start, end, weight=0.8) for i in range(4)]  # every day, all month
+    stadium = sig("Stadium show", date(2026, 11, 14), weight=1.8)
+    holiday = sig("Thanksgiving", date(2026, 11, 26), weight=0.8, kind="holiday")
+    days = {d.day: d for d in forecast.score_days(nightly + [stadium, holiday], start, end, None)}
+    ordinary = days[date(2026, 11, 3)]
+    assert ordinary.score == forecast.BASELINE and ordinary.routine_excluded == 3.2
+    assert days[date(2026, 11, 14)].level in ("Busy", "Very busy")
+    assert days[date(2026, 11, 13)].score > ordinary.score  # arrival night still counts
+    assert days[date(2026, 11, 26)].score > ordinary.score  # holidays are never "routine"
+
+
+def test_short_ranges_subtract_nothing():
+    d = date(2026, 11, 1)
+    days = forecast.score_days([sig("A", d, d + timedelta(days=3))], d, d + timedelta(days=3), None)
+    assert all(x.routine_excluded == 0 and x.score > forecast.BASELINE for x in days)
+
+
+def test_long_ranges_compare_each_weekday_with_its_own_kind():
+    start, end = date(2026, 11, 2), date(2026, 11, 29)  # 4 weeks, Mon..Sun
+    signals = []
+    d = start
+    while d <= end:
+        n = 6 if d.weekday() == 5 else 2  # Saturdays always have 3x the shows
+        signals += [sig(f"Show {d} {i}", d, weight=0.5) for i in range(n)]
+        d += timedelta(days=1)
+    signals.append(sig("Stadium concert", date(2026, 11, 14), weight=1.8))  # one special Saturday
+    days = {x.day: x for x in forecast.score_days(signals, start, end, None)}
+    assert days[date(2026, 11, 7)].score == forecast.BASELINE  # ordinary Saturday is "normal"
+    assert days[date(2026, 11, 4)].score == forecast.BASELINE  # ordinary Wednesday too
+    assert days[date(2026, 11, 14)].level in ("Busy", "Very busy")

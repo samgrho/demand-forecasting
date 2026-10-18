@@ -205,6 +205,12 @@ button {
 }
 .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
 .cite { font-size: 0.8rem; white-space: nowrap; }
+.adj-line { font-size: 0.8rem; color: var(--ink-2); margin-top: 2px; }
+.adj-line::before { content: "↳ "; color: var(--muted); }
+.adj-line .sep { margin: 0 6px; color: var(--muted); }
+.assumption { color: var(--muted); font-style: italic; }
+td.impact .sub-line { white-space: nowrap; }
+#signals-table td:last-child .adj-line { margin: 0 0 6px; }
 .cite a { margin-right: 6px; }
 .empty { color: var(--muted); font-style: italic; }
 

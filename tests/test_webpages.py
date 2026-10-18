@@ -94,10 +94,18 @@ def test_ics_all_day_end_is_exclusive():
     assert story.weight < conf.weight
 
 
-def test_capacity_scales_weight():
-    small = event_weight(["MusicEvent"], "Gig", 100)
-    big = event_weight(["MusicEvent"], "Gig", 50000)
-    assert big > small
+def test_published_capacity_becomes_sourced_adjustment():
+    raw = [
+        {"title": "Small gig", "start": "2026-10-05", "types": ["MusicEvent"], "capacity": 100},
+        {"title": "Big gig", "start": "2026-10-05", "types": ["MusicEvent"], "capacity": "50,000"},
+        {"title": "Unknown size", "start": "2026-10-05", "types": ["MusicEvent"]},
+    ]
+    small, big, unknown = to_signals(raw, "https://venue.test/cal", NOW, date(2026, 10, 1), date(2026, 10, 31))
+    assert big.weight > unknown.weight > small.weight
+    adj = big.adjustments[0]
+    assert adj.label == "Venue capacity" and "50,000" in adj.detail
+    assert adj.sources[0].url == "https://venue.test/cal"
+    assert unknown.adjustments == [] and unknown.weight == event_weight(["MusicEvent"], "Unknown size")
 
 
 @respx.mock

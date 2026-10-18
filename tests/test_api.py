@@ -3,7 +3,7 @@ from dataclasses import replace
 import respx
 from fastapi.testclient import TestClient
 
-from app import main
+from app import main, service
 from app.main import app
 
 
@@ -33,6 +33,8 @@ def test_rejects_reversed_dates():
 
 def test_forecast_end_to_end_every_signal_has_a_source(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "settings", replace(main.settings, cache_path=tmp_path / "c.sqlite3"))
+    # Don't depend on the developer's .env (e.g. a real Ticketmaster key).
+    monkeypatch.setattr(service, "settings", replace(service.settings, ticketmaster_api_key=""))
     with respx.mock(assert_all_mocked=True, assert_all_called=False) as router, TestClient(app) as client:
         _mock_sources(router)
         res = client.post("/api/forecast", json={
@@ -47,4 +49,4 @@ def test_forecast_end_to_end_every_signal_has_a_source(tmp_path, monkeypatch):
     thanksgiving = next(d for d in data["days"] if d["day"] == "2026-11-26")
     assert thanksgiving["score"] > data["model"]["baseline"]
     outcomes = {c["source"]: c["outcome"] for c in data["source_log"]}
-    assert outcomes["Ticketmaster"] in ("skipped", "ok")
+    assert outcomes["Ticketmaster"] == "skipped"

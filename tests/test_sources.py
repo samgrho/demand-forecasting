@@ -4,7 +4,7 @@ import respx
 
 from app.models import Location
 from app.sources.holidays import holiday_signals
-from app.sources.ticketmaster import parse_events, ticketmaster_signals
+from app.sources.ticketmaster import drop_covered_bundles, parse_events, ticketmaster_signals
 from app.sources.wikidata import parse_bindings
 
 NOW = datetime(2026, 10, 1, tzinfo=timezone.utc)
@@ -77,3 +77,19 @@ def test_wikidata_merges_rows_per_item():
     assert len(sigs) == 1
     assert sigs[0].category == "marathon, sporting event"
     assert [s.publisher for s in sigs[0].sources] == ["Wikidata", "Wikipedia"]
+
+
+def _tm(name, day="2026-11-07", venue="Emo's Austin"):
+    return {"name": name, "url": f"https://tm.test/{name}", "dates": {"start": {"localDate": day}},
+            "classifications": [{"segment": {"name": "Music"}}], "_embedded": {"venues": [{"name": venue}]}}
+
+
+def test_bundles_dropped_only_when_the_show_is_listed():
+    payload = {"_embedded": {"events": [
+        _tm("They Might Be Giants"),
+        _tm("TWO NIGHTS WITH THEY MIGHT BE GIANTS - 2 Day Ticket"),
+        _tm("Big Fest - Weekend Pass", venue="Auditorium Shores"),  # only listing -> keep
+        _tm("Expedited Entry & Social Club Happy Hour - Steve Lacy"),
+    ]}}
+    titles = [s.title for s in drop_covered_bundles(parse_events(payload, NOW))]
+    assert titles == ["They Might Be Giants", "Big Fest - Weekend Pass"]

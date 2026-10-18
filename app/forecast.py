@@ -6,6 +6,8 @@ The model is deliberately simple and explainable:
   pressure(day) = sum of the weights of every signal covering that day
                   + ARRIVAL_SHARE of the weight of big events starting tomorrow
                     (guests check in the night before)
+                  - the routine event load (median for that weekday in the range),
+                    so a city's normal nightly shows don't read as "busy"
   index(day)    = baseline + (100 - baseline) * (1 - exp(-pressure / SATURATION))
 
 So each extra event pushes the index up, but with diminishing returns, and a
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import math
 import re
+import statistics
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -30,6 +33,8 @@ BASELINE = 40.0
 SATURATION = 3.0
 ARRIVAL_SHARE = 0.4
 ARRIVAL_MIN_WEIGHT = 0.9  # only events big enough to draw overnight visitors
+ROUTINE_MIN_DAYS = 14  # need this many days to judge what a "typical" day's event load is
+ROUTINE_WEEKDAY_MIN_DAYS = 28  # ...and this many to judge it per weekday (4+ of each)
 SEASONAL_CLAMP = (0.6, 1.6)
 
 LEVELS = [(70, "Very busy"), (52, "Busy"), (35, "Normal"), (0, "Quiet")]
@@ -55,6 +60,7 @@ class DayForecast:
     seasonal_factor: float
     pressure: float
     drivers: list[Driver] = field(default_factory=list)
+    routine_excluded: float = 0.0  # event load treated as an ordinary day's background
 
 
 @dataclass
@@ -78,12 +84,20 @@ def merge_duplicates(signals: list[Signal]) -> list[Signal]:
     for sig in signals:
         key = (sig.kind, _norm(sig.title), sig.start)
         if key not in merged:
-            merged[key] = Signal(**{**sig.__dict__, "sources": list(sig.sources)})
+            merged[key] = Signal(**{
+                **sig.__dict__,
+                "sources": list(sig.sources),
+                "adjustments": list(sig.adjustments),
+                "performers": list(sig.performers),
+            })
             continue
         existing = merged[key]
         seen = {s.url for s in existing.sources}
         existing.sources.extend(s for s in sig.sources if s.url not in seen)
-        existing.weight = max(existing.weight, sig.weight)
+        if sig.weight > existing.weight:
+            # Keep the stronger report's weight together with the adjustments that explain it.
+            existing.weight, existing.base_weight = sig.weight, sig.base_weight
+            existing.adjustments = list(sig.adjustments)
         existing.end = max(existing.end, sig.end)
         existing.venue = existing.venue or sig.venue
         existing.category = existing.category or sig.category
@@ -93,25 +107,62 @@ def merge_duplicates(signals: list[Signal]) -> list[Signal]:
 
 
 def score_days(signals: list[Signal], start: date, end: date, seasonal: SeasonalProfile | None) -> list[DayForecast]:
-    days = []
+    raw = []
     d = start
     while d <= end:
         factor = 1.0
         if seasonal:
             factor = min(max(seasonal.factor(d), SEASONAL_CLAMP[0]), SEASONAL_CLAMP[1])
-        baseline = BASELINE * factor
         drivers: list[Driver] = []
         for i, sig in enumerate(signals):
             if sig.covers(d):
                 drivers.append(Driver(i, sig.weight, "on the day"))
             elif sig.kind == "event" and sig.weight >= ARRIVAL_MIN_WEIGHT and sig.start == d + timedelta(days=1):
                 drivers.append(Driver(i, round(sig.weight * ARRIVAL_SHARE, 3), "arrival night"))
-        pressure = sum(dr.contribution for dr in drivers)
-        score = baseline + (100 - baseline) * (1 - math.exp(-pressure / SATURATION))
         drivers.sort(key=lambda dr: dr.contribution, reverse=True)
-        days.append(DayForecast(d, round(score, 1), level_for(score), round(baseline, 1), round(factor, 3), round(pressure, 3), drivers))
+        event_load = sum(dr.contribution for dr in drivers if signals[dr.signal_id].kind == "event")
+        other_load = sum(dr.contribution for dr in drivers) - event_load
+        raw.append((d, factor, drivers, event_load, other_load))
         d += timedelta(days=1)
+
+    routine = routine_by_weekday([(r[0], r[3]) for r in raw])
+    days = []
+    for d, factor, drivers, event_load, other_load in raw:
+        baseline = BASELINE * factor
+        excluded = min(event_load, routine[d.weekday()])
+        pressure = other_load + event_load - excluded
+        score = baseline + (100 - baseline) * (1 - math.exp(-pressure / SATURATION))
+        days.append(DayForecast(
+            d, round(score, 1), level_for(score), round(baseline, 1), round(factor, 3), round(pressure, 3), drivers, round(excluded, 3)
+        ))
     return days
+
+
+def routine_by_weekday(loads: list[tuple[date, float]]) -> dict[int, float]:
+    """Routine event load for each weekday (0=Mon).
+
+    With 4+ weeks of data each weekday is compared with its own kind (a
+    Saturday with the typical Saturday), because many cities have far more
+    shows at weekends. With 2-4 weeks one median covers all days; with less,
+    nothing is subtracted.
+    """
+    if len(loads) >= ROUTINE_WEEKDAY_MIN_DAYS:
+        return {wd: statistics.median(v for d, v in loads if d.weekday() == wd) for wd in range(7)}
+    overall = routine_event_load([v for _, v in loads])
+    return {wd: overall for wd in range(7)}
+
+
+def routine_event_load(daily_event_loads: list[float]) -> float:
+    """The event load of a typical day in the range (median), treated as part of the baseline.
+
+    In a city with shows every night, that steady background is what "normal"
+    looks like; only event pressure above it should push a day toward busy.
+    Short ranges don't have enough days to say what's typical, so nothing is
+    subtracted there.
+    """
+    if len(daily_event_loads) < ROUTINE_MIN_DAYS:
+        return 0.0
+    return statistics.median(daily_event_loads)
 
 
 def busy_periods(days: list[DayForecast], signals: list[Signal], min_level: str = "Busy", max_periods: int = 12) -> list[Period]:
@@ -150,6 +201,6 @@ def busy_periods(days: list[DayForecast], signals: list[Signal], min_level: str 
 def all_sources(signals: list[Signal]) -> list[Source]:
     seen: dict[str, Source] = {}
     for sig in signals:
-        for s in sig.sources:
+        for s in sig.sources + [src for adj in sig.adjustments for src in adj.sources]:
             seen.setdefault(s.url, s)
     return list(seen.values())

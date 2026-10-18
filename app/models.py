@@ -33,6 +33,31 @@ class Source:
 
 
 @dataclass
+class Performer:
+    name: str
+    wikipedia_url: str | None = None  # when the listing links one
+
+
+@dataclass
+class Adjustment:
+    """A sourced multiplier on a signal's weight (e.g. venue size, artist popularity)."""
+
+    label: str  # "Venue capacity" | "Artist popularity"
+    factor: float
+    detail: str  # human-readable claim, e.g. "Moody Center holds 15,000"
+    sources: list[Source]  # empty = a model assumption, not a sourced claim
+
+    @property
+    def assumed(self) -> bool:
+        return not self.sources
+
+
+# Bounds on the combined effect of all adjustments, so one mega-event can't
+# drown out everything else on the calendar.
+ADJUSTMENT_BOUNDS = (0.4, 2.5)
+
+
+@dataclass
 class Signal:
     """One thing that may raise demand over a span of days."""
 
@@ -46,12 +71,29 @@ class Signal:
     venue: str | None = None
     distance_km: float | None = None
     description: str | None = None
+    venue_name: str | None = None  # venue alone, for capacity lookups
+    venue_coords: tuple[float, float] | None = None  # (lat, lon) when the source gives it
+    performers: list[Performer] = field(default_factory=list)
+    adjustments: list[Adjustment] = field(default_factory=list)
+    base_weight: float | None = None  # weight before adjustments
+
+    def __post_init__(self):
+        if self.base_weight is None:
+            self.base_weight = self.weight
 
     def covers(self, day: date) -> bool:
         return self.start <= day <= self.end
 
-    def dedupe_key(self) -> tuple:
-        return (self.kind, self.title.strip().lower(), self.start, (self.venue or "").strip().lower())
+    def has_adjustment(self, label: str) -> bool:
+        return any(a.label == label for a in self.adjustments)
+
+    def add_adjustment(self, adj: Adjustment) -> None:
+        self.adjustments.append(adj)
+        product = 1.0
+        for a in self.adjustments:
+            product *= a.factor
+        lo, hi = ADJUSTMENT_BOUNDS
+        self.weight = round(self.base_weight * min(max(product, lo), hi), 3)
 
 
 @dataclass

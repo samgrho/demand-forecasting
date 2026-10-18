@@ -164,10 +164,32 @@ function render() {
   renderMethod();
 }
 
+function sizeLine(sig) {
+  if (!sig.adjustments || !sig.adjustments.length) return "";
+  return `<div class="adj-line">` + sig.adjustments.map((a) => a.sources.length
+    ? `${esc(a.detail)} ${citations(a.sources)}`
+    : `${esc(a.detail)} <span class="assumption" title="Not a sourced claim: a rule of the model">(model assumption)</span>`
+  ).join(`<span class="sep">·</span>`) + `</div>`;
+}
+
 function signalLine(sig, extra = "") {
   const when = fmtRange(sig.start, sig.end);
   const where = sig.venue ? ` · ${esc(sig.venue)}` : "";
-  return `<strong>${esc(sig.title)}</strong> <span class="muted">(${esc(when)}${where})</span>${extra} ${citations(sig.sources)}`;
+  return `<strong>${esc(sig.title)}</strong> <span class="muted">(${esc(when)}${where})</span>${extra} ${citations(sig.sources)}${sizeLine(sig)}`;
+}
+
+const SHORT_LABEL = { "Venue capacity": "venue size", "Artist popularity": "artist popularity" };
+
+function impactCell(s) {
+  const notes = (s.adjustments || []).map((a) => `<span class="sub-line${a.sources.length ? "" : " muted"}">×${a.factor.toFixed(2)} ${esc(SHORT_LABEL[a.label] || a.label.toLowerCase())}${a.sources.length ? "" : " (assumed)"}</span>`);
+  if (s.kind === "event") {
+    const has = (label) => (s.adjustments || []).some((a) => a.label === label);
+    if (!has("Venue capacity")) notes.push(`<span class="sub-line muted">venue size unknown</span>`);
+    const sports = (s.category || "").startsWith("Sports");
+    if (s.performers && s.performers.length && !sports && !has("Artist popularity")) notes.push(`<span class="sub-line muted">artist popularity unknown</span>`);
+  }
+  const base = s.adjustments && s.adjustments.length ? `<span class="sub-line">base ${s.base_weight.toFixed(2)}</span>` : "";
+  return `${s.weight.toFixed(2)}${base}${notes.join("")}`;
 }
 
 function renderPeriods() {
@@ -324,7 +346,7 @@ function renderDayDetail() {
   }).join("");
   box.innerHTML = `<div class="panel">
     <h3>${esc(fmtDay(d.day, { weekday: "long", month: "long", day: "numeric", year: "numeric" }))} — ${Math.round(d.score)}/100 <span class="level">${levelSwatch(d.level)}${esc(d.level)}</span></h3>
-    <p class="muted">Seasonal baseline ${d.baseline.toFixed(0)} (month factor ×${d.seasonal_factor.toFixed(2)}); signal pressure ${d.pressure.toFixed(2)}.</p>
+    <p class="muted">Seasonal baseline ${d.baseline.toFixed(0)} (month factor ×${d.seasonal_factor.toFixed(2)}); signal pressure ${d.pressure.toFixed(2)}${d.routine_excluded > 0 ? ` after setting aside ${d.routine_excluded.toFixed(2)} of routine event load (a typical ${esc(fmtDay(d.day, { weekday: "long" }))} in this range)` : ""}.</p>
     ${items ? `<ul>${items}</ul>` : `<p class="empty">No events or holidays found for this day.</p>`}
   </div>`;
 }
@@ -355,8 +377,8 @@ function renderSignals() {
       <td><strong>${esc(s.title)}</strong>${s.description ? `<span class="sub-line">${esc(s.description)}</span>` : ""}</td>
       <td>${esc(s.category || KIND_LABEL[s.kind] || s.kind)}</td>
       <td>${esc(s.venue || "—")}${s.distance_km != null ? `<span class="sub-line">${s.distance_km} km away</span>` : ""}</td>
-      <td class="num">${s.weight.toFixed(2)}</td>
-      <td>${s.sources.map((src) => `<div>${citations([src])}<span class="sub-line">fetched ${esc(fmtStamp(src.fetched_at))}</span></div>`).join("")}</td>
+      <td class="num impact">${impactCell(s)}</td>
+      <td>${sizeLine(s)}${s.sources.map((src) => `<div>${citations([src])}<span class="sub-line">fetched ${esc(fmtStamp(src.fetched_at))}</span></div>`).join("")}</td>
     </tr>`).join("") + `</tbody>`;
 }
 
@@ -444,7 +466,7 @@ function renderLog() {
 
 function renderMethod() {
   const m = state.data.model;
-  $("#method-text").innerHTML = `${esc(m.note)} Each day starts at a seasonal baseline (${m.baseline} × that month's travel-interest factor). Every event, holiday or long weekend covering the day adds pressure according to its type and distance; large events also add pressure to the night before, when visitors check in. Pressure raises the index with diminishing returns, so one more small event on an already-busy day barely moves it. Impact weights are rough rules of thumb, not fitted to your bookings. Treat the index as a prompt to check those dates, and verify each event through its source link.`;
+  $("#method-text").innerHTML = `${esc(m.note)} Each day starts at a seasonal baseline (${m.baseline} × that month's travel-interest factor). Every event, holiday or long weekend covering the day adds pressure according to its type and distance. Events are then sized where public data allows: venue capacity from Wikidata or the venue's Wikipedia infobox (about ×0.5 for a 100-seat room up to ×1.7 for a stadium) and, for non-sports events, the headliner's popularity from average monthly Wikipedia views (×0.75 for little-known acts up to ×1.6 for global stars). Venues not found on either are assumed small (×0.7) and marked as an assumption. Combined sizing is capped at ×0.4–×2.5. A city's routine event load is treated as part of the baseline, so only event pressure above an ordinary day raises the index. For ranges of four weeks or more, each day is compared with the typical day of the same weekday (a Saturday with other Saturdays); for two to four weeks, with the typical day overall. Large events also add pressure to the night before, when visitors check in. Pressure raises the index with diminishing returns, so one more small event on an already-busy day barely moves it. Impact weights are rough rules of thumb, not fitted to your bookings. Treat the index as a prompt to check those dates, and verify each event through its source link.`;
 }
 
 let resizeTimer;

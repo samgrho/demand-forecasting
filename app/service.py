@@ -10,6 +10,7 @@ from . import forecast
 from .config import settings
 from .fetcher import FetchBlocked, FetchFailed, PoliteFetcher
 from .models import SourceCheck, to_jsonable, utcnow
+from .sources.enrich import enrich_events
 from .sources.geocode import geocode
 from .sources.holidays import holiday_signals
 from .sources.pageviews import seasonal_profile
@@ -78,6 +79,12 @@ async def run_forecast(fetcher: PoliteFetcher, req: ForecastRequest, today: date
         else:
             signals.extend(result)
 
+    try:
+        await enrich_events(fetcher, loc, signals, req.radius_km, today, trace)
+    except Exception as exc:  # sizing is a refinement; never lose the forecast over it
+        warnings.append(f"Could not size events (venue capacity / artist popularity): {type(exc).__name__}: {exc}")
+        trace.append(SourceCheck("event sizing", "", "error", str(exc)))
+
     signals = forecast.merge_duplicates(signals)
     signals.sort(key=lambda s: (s.start, -s.weight))
     days = forecast.score_days(signals, req.start, req.end, seasonal)
@@ -92,6 +99,12 @@ async def run_forecast(fetcher: PoliteFetcher, req: ForecastRequest, today: date
         "location": loc,
         "model": {
             "baseline": forecast.BASELINE,
+            "routine_by_weekday": {
+                wd: round(v, 3)
+                for wd, v in forecast.routine_by_weekday(
+                    [(d.day, sum(dr.contribution for dr in d.drivers if signals[dr.signal_id].kind == "event")) for d in days]
+                ).items()
+            },
             "saturation": forecast.SATURATION,
             "levels": [{"min": t, "name": n} for t, n in forecast.LEVELS],
             "note": "Index of expected demand pressure from public signals (0-100). Not fitted to any hotel's bookings.",

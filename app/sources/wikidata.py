@@ -71,6 +71,7 @@ def parse_bindings(payload: dict, fetched_at) -> list[Signal]:
             sources=sources,
             category=row.get("typeLabel", {}).get("value"),
             venue=venue,
+            venue_name=venue,
             description="Catalogued on Wikidata with this date and location.",
         )
     return list(by_item.values())

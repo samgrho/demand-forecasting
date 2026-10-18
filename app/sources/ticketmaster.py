@@ -10,7 +10,7 @@ import re
 from datetime import date, datetime, timedelta
 
 from ..fetcher import FetchBlocked, FetchFailed, PoliteFetcher
-from ..models import Location, Signal, Source, SourceCheck
+from ..models import Location, Performer, Signal, Source, SourceCheck
 
 API = "https://app.ticketmaster.com/discovery/v2/events.json"
 PUBLISHER = "Ticketmaster"
@@ -30,13 +30,25 @@ DEFAULT_WEIGHT = 0.3
 DISTANCE_SCALE_KM = 15.0
 
 # Ticketmaster lists add-ons (parking, upgrades) as separate "events".
-ADD_ON = re.compile(r"\b(parking|upgrade|vip package|add[- ]on|gift card|voucher|suite rental|tailgate pass)\b", re.I)
+ADD_ON = re.compile(
+    r"\b(parking|upgrade|vip package|add[- ]on|gift card|voucher|suite rental|tailgate pass|expedited entry|"
+    r"early entry|happy hour|pre-?show|meet (?:&|and) greet|soundcheck|fast lane|lounge access|club access)\b",
+    re.I,
+)
+# Multi-day bundles ("2 Day Ticket", "Two Night Pass") duplicate the nightly listings they cover.
+BUNDLE = re.compile(r"\b(?:\d+|two|three|four)[- ]?(?:day|night)s?\b.*\b(?:ticket|pass)\b|\bweekend pass\b|\bmulti[- ]day\b", re.I)
 
 
 def distance_factor(km: float | None) -> float:
     if km is None:
         return 0.7
     return 1.0 / (1.0 + km / DISTANCE_SCALE_KM)
+
+
+def drop_covered_bundles(signals: list[Signal]) -> list[Signal]:
+    """Remove bundle listings when the individual show is also listed at that venue that day."""
+    singles = {(s.venue_name, s.start) for s in signals if not BUNDLE.search(s.title)}
+    return [s for s in signals if not (BUNDLE.search(s.title) and (s.venue_name, s.start) in singles)]
 
 
 def parse_events(payload: dict, fetched_at: datetime) -> list[Signal]:
@@ -60,8 +72,21 @@ def parse_events(payload: dict, fetched_at: datetime) -> list[Signal]:
         cls = (ev.get("classifications") or [{}])[0]
         segment = (cls.get("segment") or {}).get("name")
         genre = (cls.get("genre") or {}).get("name")
-        venue = ((ev.get("_embedded") or {}).get("venues") or [{}])[0]
+        embedded = ev.get("_embedded") or {}
+        venue = (embedded.get("venues") or [{}])[0]
         venue_name = venue.get("name")
+        coords = None
+        try:
+            vloc = venue.get("location") or {}
+            coords = (float(vloc["latitude"]), float(vloc["longitude"]))
+        except (KeyError, TypeError, ValueError):
+            pass
+        performers = []
+        for att in embedded.get("attractions") or []:
+            if not att.get("name"):
+                continue
+            wiki = ((att.get("externalLinks") or {}).get("wiki") or [{}])[0].get("url")
+            performers.append(Performer(att["name"], wiki))
         city = (venue.get("city") or {}).get("name")
         km = ev.get("distance")
         if km is not None and (ev.get("units") or "").upper().startswith("MI"):
@@ -82,6 +107,9 @@ def parse_events(payload: dict, fetched_at: datetime) -> list[Signal]:
                 venue=where or None,
                 distance_km=round(float(km), 1) if km is not None else None,
                 description=f"Ticketed {(segment or 'event').lower()} listing" + (f" at {where}" if where else "") + ".",
+                venue_name=venue_name,
+                venue_coords=coords,
+                performers=performers,
             )
         )
     return signals
@@ -122,4 +150,4 @@ async def ticketmaster_signals(
         info = payload.get("page") or {}
         if info.get("number", page) + 1 >= info.get("totalPages", 0):
             break
-    return signals
+    return drop_covered_bundles(signals)
