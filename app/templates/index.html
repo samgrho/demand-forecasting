@@ -8,117 +8,174 @@
 </head>
 <body>
   <header class="top">
-    <div class="wrap">
-      <h1>Hotel Demand Forecaster</h1>
-      <p class="sub">Spot busy dates early from public event listings, holidays and travel-interest data. Every claim links to its source.</p>
+    <div class="top-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>Hotel Demand Forecaster</span>
+      </div>
+      <div class="status-chips">
+        <span class="chip {{ 'chip-on' if ticketmaster_enabled else 'chip-off' }}" title="{{ 'Ticketmaster Discovery API key loaded' if ticketmaster_enabled else 'Add TICKETMASTER_API_KEY to .env' }}">Ticketmaster</span>
+        <span class="chip {{ 'chip-on' if contact_set else 'chip-off' }}" title="{{ 'Contact sent in the User-Agent header' if contact_set else 'Add SCRAPER_CONTACT to .env' }}">Contact</span>
+      </div>
     </div>
+
+    <form id="forecast-form" class="query-card" autocomplete="off">
+      <div class="query">
+        <label class="q-field q-location">
+          <span>Location</span>
+          <input name="location" required placeholder="City or address, e.g. Austin, Texas">
+        </label>
+        <label class="q-field">
+          <span>From</span>
+          <input type="date" name="start" required>
+        </label>
+        <label class="q-field">
+          <span>To</span>
+          <input type="date" name="end" required>
+        </label>
+        <label class="q-field q-radius">
+          <span>Radius km</span>
+          <input type="number" name="radius_km" min="1" max="200" value="25" required>
+        </label>
+        <div class="q-actions">
+          <button type="button" id="pages-toggle" class="btn-ghost" aria-expanded="false" aria-controls="pages-panel">Event pages <span id="pages-count" class="count"></span></button>
+          <button type="submit" id="submit-btn" class="btn-primary">Build forecast</button>
+        </div>
+      </div>
+      <div id="pages-panel" class="pages-panel" hidden>
+        <p class="hint">Optional: up to 20 URLs, one per line. City or tourism calendars, venue schedules, or <code>.ics</code> feeds. Only structured event data (schema.org or iCal) is read, and only where the site's robots.txt allows it.</p>
+        <textarea name="source_urls" rows="4" placeholder="https://www.example-city.gov/events&#10;https://www.example-arena.com/calendar.ics"></textarea>
+      </div>
+    </form>
   </header>
 
-  <main class="wrap">
-    <section class="card" aria-labelledby="form-h">
-      <h2 id="form-h">Where and when</h2>
-      <form id="forecast-form">
-        <div class="grid-form">
-          <label class="field wide">
-            <span>Hotel location</span>
-            <input name="location" required placeholder="City or full address, e.g. Austin, Texas" autocomplete="off">
-          </label>
-          <label class="field">
-            <span>From</span>
-            <input type="date" name="start" required>
-          </label>
-          <label class="field">
-            <span>To</span>
-            <input type="date" name="end" required>
-          </label>
-          <label class="field">
-            <span>Event radius (km)</span>
-            <input type="number" name="radius_km" min="1" max="200" value="25" required>
-          </label>
-        </div>
-        <details class="sources-input">
-          <summary>Add local event pages <span class="muted">(optional)</span></summary>
-          <p class="hint">Paste up to 20 URLs, one per line: city or tourism-board event calendars, venue and convention-centre schedules, or <code>.ics</code> calendar feeds. Only events the page publishes as structured data (schema.org or iCal) are read, and only if the site's robots.txt allows it.</p>
-          <textarea name="source_urls" rows="4" placeholder="https://www.example-city.gov/events&#10;https://www.example-arena.com/calendar.ics"></textarea>
-        </details>
-        <div class="form-foot">
-          <button type="submit" id="submit-btn">Build forecast</button>
-          <span class="chip {{ 'chip-on' if ticketmaster_enabled else 'chip-off' }}">
-            Ticketmaster {{ 'connected' if ticketmaster_enabled else 'not connected — add TICKETMASTER_API_KEY to .env' }}
-          </span>
-          {% if not contact_set %}<span class="chip chip-off">Set SCRAPER_CONTACT in .env</span>{% endif %}
-        </div>
-      </form>
-    </section>
-
+  <main class="dash">
     <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <section id="empty-state" class="empty-state">
+      <h1>See which dates will be busy, and why</h1>
+      <p>Enter the hotel's city or address and a date range. The forecast combines ticketed events, notable local events, public holidays, long weekends and seasonal travel interest into a daily demand index. Every event links to the page it came from.</p>
+      <ol>
+        <li><strong>Busiest dates</strong>: stretches above normal, with the events behind them.</li>
+        <li><strong>Daily index</strong>: select any day to see what's driving it.</li>
+        <li><strong>Sources</strong>: every claim is linked, and every request is logged.</li>
+      </ol>
+    </section>
 
     <div id="results" hidden>
       <div id="warnings"></div>
 
-      <section class="card" aria-labelledby="periods-h">
-        <div class="card-head">
-          <h2 id="periods-h">Busiest dates</h2>
-          <p class="muted" id="loc-line"></p>
-        </div>
-        <ol id="periods" class="periods"></ol>
+      <section class="kpis" aria-label="Summary">
+        <div class="tile" id="kpi-peak"></div>
+        <div class="tile" id="kpi-next"></div>
+        <div class="tile" id="kpi-busy"></div>
+        <div class="tile" id="kpi-events"></div>
       </section>
 
-      <section class="card" aria-labelledby="chart-h">
-        <div class="card-head">
-          <div>
-            <h2 id="chart-h">Daily demand index</h2>
-            <p class="muted">0–100. Bars above the seasonal baseline are driven by sourced events and holidays. Select a day for details.</p>
+      <div class="main-grid">
+        <section class="card chart-card" aria-labelledby="chart-h">
+          <div class="card-head">
+            <div>
+              <h2 id="chart-h">Daily demand index</h2>
+              <p class="sub" id="loc-line"></p>
+            </div>
+            <div class="seg" role="group" aria-label="View">
+              <button type="button" class="seg-btn is-on" data-view="chart" aria-pressed="true">Chart</button>
+              <button type="button" class="seg-btn" data-view="table" aria-pressed="false">Table</button>
+            </div>
           </div>
           <div class="legend" id="legend"></div>
-        </div>
-        <div class="chart-box">
-          <svg id="chart" role="img" aria-label="Daily demand index chart"></svg>
-          <div id="tooltip" class="tooltip" hidden></div>
-        </div>
-        <div id="day-detail" class="day-detail" aria-live="polite"></div>
-        <details class="table-view">
-          <summary>Show as table</summary>
-          <div class="table-scroll"><table id="days-table"></table></div>
-        </details>
-      </section>
+          <div id="chart-view" class="chart-box">
+            <svg id="chart" role="img" aria-label="Daily demand index chart"></svg>
+            <div id="tooltip" class="tooltip" hidden></div>
+          </div>
+          <div id="table-view" class="table-scroll tall" hidden><table id="days-table"></table></div>
+          <div id="day-strip" class="day-strip"></div>
+        </section>
 
-      <section class="card" aria-labelledby="signals-h">
-        <div class="card-head">
-          <h2 id="signals-h">Events and travel periods found</h2>
-          <div class="filters" role="group" aria-label="Filter by kind">
-            <button type="button" class="filter is-on" data-kind="all">All</button>
-            <button type="button" class="filter" data-kind="event">Events</button>
-            <button type="button" class="filter" data-kind="holiday">Holidays</button>
-            <button type="button" class="filter" data-kind="long_weekend">Long weekends</button>
+        <aside class="card periods-card" aria-labelledby="periods-h">
+          <div class="card-head">
+            <h2 id="periods-h">Busiest dates</h2>
+            <span class="sub" id="periods-count"></span>
+          </div>
+          <ol id="periods" class="periods"></ol>
+        </aside>
+      </div>
+
+      <div class="sections-bar">
+        <h2>Report sections</h2>
+        <div class="sections-actions">
+          <button type="button" class="link-btn" id="expand-all">Expand all</button>
+          <span class="muted" aria-hidden="true">·</span>
+          <button type="button" class="link-btn" id="collapse-all">Collapse all</button>
+        </div>
+      </div>
+
+      <details class="card section" id="sec-day" data-section="day" open>
+        <summary>
+          <span class="sec-title">Selected day</span>
+          <span class="sec-desc" id="day-summary">Everything driving one day's score</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="panel"><div id="day-detail"></div></div>
+      </details>
+
+      <details class="card section" id="sec-events" data-section="events">
+        <summary>
+          <span class="sec-title">Events and travel periods <span class="count" id="events-count"></span></span>
+          <span class="sec-desc">Every signal found, with impact and sources</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="panel">
+          <div class="panel-tools">
+            <div class="filters" role="group" aria-label="Filter by kind">
+              <button type="button" class="filter is-on" data-kind="all" aria-pressed="true">All</button>
+              <button type="button" class="filter" data-kind="event" aria-pressed="false">Events</button>
+              <button type="button" class="filter" data-kind="holiday" aria-pressed="false">Holidays</button>
+              <button type="button" class="filter" data-kind="long_weekend" aria-pressed="false">Long weekends</button>
+            </div>
+            <input type="search" id="events-search" class="search" placeholder="Search events, venues, artists" aria-label="Search events">
+            <label class="toggle"><input type="checkbox" id="events-big"> Impact ≥ 1.0 only</label>
+          </div>
+          <div class="table-scroll tall"><table id="signals-table" class="sticky"></table></div>
+        </div>
+      </details>
+
+      <details class="card section" id="sec-season" data-section="season">
+        <summary>
+          <span class="sec-title">Seasonal travel interest</span>
+          <span class="sec-desc">How each month shifts the baseline</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="panel">
+          <p class="sub" id="season-note"></p>
+          <div class="chart-box short" id="season-box">
+            <svg id="season-chart" role="img" aria-label="Seasonal interest by month"></svg>
+            <div id="season-tooltip" class="tooltip" hidden></div>
           </div>
         </div>
-        <div class="table-scroll"><table id="signals-table"></table></div>
-      </section>
+      </details>
 
-      <section class="card" aria-labelledby="season-h">
-        <div class="card-head">
-          <div>
-            <h2 id="season-h">Seasonal travel interest</h2>
-            <p class="muted" id="season-note"></p>
-          </div>
+      <details class="card section" id="sec-log" data-section="log">
+        <summary>
+          <span class="sec-title">Source log <span class="count" id="log-count"></span></span>
+          <span class="sec-desc">Every request made or skipped, and why</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="panel">
+          <p class="sub">Includes requests skipped because robots.txt disallows them, a key is missing, or a page has no machine-readable events. API keys are redacted.</p>
+          <div class="table-scroll tall"><table id="log-table" class="sticky"></table></div>
         </div>
-        <div class="chart-box short">
-          <svg id="season-chart" role="img" aria-label="Seasonal interest by month"></svg>
-          <div id="season-tooltip" class="tooltip" hidden></div>
-        </div>
-      </section>
+      </details>
 
-      <section class="card" aria-labelledby="log-h">
-        <h2 id="log-h">Source log</h2>
-        <p class="muted">Every source checked for this forecast, including ones skipped because the site's robots.txt disallows automated access, a key was missing, or the page had no machine-readable events. API keys are redacted.</p>
-        <div class="table-scroll"><table id="log-table"></table></div>
-      </section>
-
-      <section class="card method" aria-labelledby="method-h">
-        <h2 id="method-h">How the index works</h2>
-        <p id="method-text"></p>
-      </section>
+      <details class="card section" id="sec-method" data-section="method">
+        <summary>
+          <span class="sec-title">How the index works</span>
+          <span class="sec-desc">Baseline, event sizing and routine load</span>
+          <span class="chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="panel method"><div id="method-text"></div></div>
+      </details>
     </div>
   </main>
 

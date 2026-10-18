@@ -32,7 +32,8 @@ DISTANCE_SCALE_KM = 15.0
 # Ticketmaster lists add-ons (parking, upgrades) as separate "events".
 ADD_ON = re.compile(
     r"\b(parking|upgrade|vip package|add[- ]on|gift card|voucher|suite rental|tailgate pass|expedited entry|"
-    r"early entry|happy hour|pre-?show|meet (?:&|and) greet|soundcheck|fast lane|lounge access|club access)\b",
+    r"early entry|happy hour|pre-?show|meet (?:&|and) greet|soundcheck|fast lane|lounge access|club access|"
+    r"premium seating|vip seating)\b",
     re.I,
 )
 # Multi-day bundles ("2 Day Ticket", "Two Night Pass") duplicate the nightly listings they cover.
