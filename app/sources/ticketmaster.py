@@ -126,7 +126,7 @@ async def ticketmaster_signals(
     trace: list[SourceCheck],
 ) -> list[Signal]:
     if not api_key:
-        trace.append(SourceCheck(PUBLISHER, API, "skipped", "set TICKETMASTER_API_KEY in .env to enable"))
+        trace.append(SourceCheck(PUBLISHER, API, "skipped", "add a Ticketmaster API key in Settings to enable"))
         return []
 
     signals: list[Signal] = []

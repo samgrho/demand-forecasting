@@ -14,10 +14,20 @@
         <span>Hotel Demand Forecaster</span>
       </div>
       <div class="status-chips">
-        <span class="chip {{ 'chip-on' if ticketmaster_enabled else 'chip-off' }}" title="{{ 'Ticketmaster Discovery API key loaded' if ticketmaster_enabled else 'Add TICKETMASTER_API_KEY to .env' }}">Ticketmaster</span>
-        <span class="chip {{ 'chip-on' if contact_set else 'chip-off' }}" title="{{ 'Contact sent in the User-Agent header' if contact_set else 'Add SCRAPER_CONTACT to .env' }}">Contact</span>
+        <button type="button" class="chip {{ 'chip-on' if ticketmaster_enabled else 'chip-off' }}" id="chip-tm" data-open-settings title="{{ 'Ticketmaster key saved' if ticketmaster_enabled else 'Add a Ticketmaster key in Settings' }}">Ticketmaster</button>
+        <button type="button" class="chip {{ 'chip-on' if contact_set else 'chip-off' }}" id="chip-contact" data-open-settings title="{{ 'Contact email saved' if contact_set else 'Add your contact email in Settings' }}">Contact</button>
+        <button type="button" class="icon-btn" id="settings-btn" data-open-settings aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+        </button>
       </div>
     </div>
+
+    {% if not contact_set %}
+    <div class="setup-banner" id="setup-banner">
+      <span><strong>Finish setup:</strong> add your contact email (and optionally a free Ticketmaster key) so the sites this app reads know who to reach.</span>
+      <button type="button" class="btn-primary small" data-open-settings>Open settings</button>
+    </div>
+    {% endif %}
 
     <form id="forecast-form" class="query-card" autocomplete="off">
       <div class="query">
@@ -178,6 +188,41 @@
       </details>
     </div>
   </main>
+
+  <dialog id="settings-dialog" aria-labelledby="settings-h">
+    <form id="settings-form" method="dialog" autocomplete="off">
+      <div class="dlg-head">
+        <h2 id="settings-h">Settings</h2>
+        <button type="button" class="icon-btn" data-close-settings aria-label="Close">✕</button>
+      </div>
+
+      <label class="dlg-field">
+        <span class="dlg-label">Contact email</span>
+        <input type="text" name="contact" inputmode="email" placeholder="you@example.com" maxlength="200">
+        <span class="dlg-help">Sent with every request so site operators can reach you about this tool. OpenStreetMap and Wikimedia ask for this. An email address or a web address both work.</span>
+      </label>
+
+      <label class="dlg-field">
+        <span class="dlg-label">Ticketmaster API key <span class="muted" id="tm-saved"></span></span>
+        <span class="key-row">
+          <input type="password" name="ticketmaster_api_key" placeholder="Paste your Consumer Key" maxlength="100" spellcheck="false">
+          <button type="button" class="btn-ghost small" id="tm-show" aria-pressed="false">Show</button>
+        </span>
+        <span class="dlg-help">Optional, free, and the richest event source. Sign up at <a href="https://developer.ticketmaster.com/" target="_blank" rel="noopener noreferrer">developer.ticketmaster.com</a>, then copy the <strong>Consumer Key</strong> from My Apps. Leave blank to keep the saved key. The key is checked with Ticketmaster when you save.</span>
+        <button type="button" class="link-btn" id="tm-remove" hidden>Remove saved key</button>
+      </label>
+
+      <p class="dlg-status" id="settings-status" role="status" aria-live="polite"></p>
+
+      <div class="dlg-foot">
+        <span class="muted small-text" id="settings-where"></span>
+        <div class="dlg-actions">
+          <button type="button" class="btn-ghost" data-close-settings>Cancel</button>
+          <button type="submit" class="btn-primary" id="settings-save">Save</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
 
   <script src="{{ js_url }}"></script>
 </body>

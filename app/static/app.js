@@ -691,6 +691,99 @@ function renderMethod() {
     <p>Pressure raises the index with diminishing returns, so one more small event on an already-busy day barely moves it. Levels: ${m.levels.slice().reverse().map((l) => `${esc(l.name)}${l.min ? ` ${l.min}+` : ""}`).join(", ")}. Weights are rules of thumb, not fitted to your bookings.</p>`;
 }
 
+// ---------- settings ----------
+
+const settingsDlg = $("#settings-dialog");
+const settingsForm = $("#settings-form");
+const settingsStatus = $("#settings-status");
+let removeKey = false;
+
+function setSettingsStatus(text, kind = "") {
+  settingsStatus.textContent = text;
+  settingsStatus.className = `dlg-status ${kind}`;
+}
+
+function applySettingsView(view) {
+  const tm = $("#chip-tm"), contact = $("#chip-contact");
+  tm.className = `chip ${view.ticketmaster.set ? "chip-on" : "chip-off"}`;
+  tm.title = view.ticketmaster.set ? "Ticketmaster key saved" : "Add a Ticketmaster key in Settings";
+  contact.className = `chip ${view.contact ? "chip-on" : "chip-off"}`;
+  contact.title = view.contact ? "Contact email saved" : "Add your contact email in Settings";
+  const banner = $("#setup-banner");
+  if (banner && view.contact) banner.remove();
+}
+
+async function openSettings() {
+  setSettingsStatus("");
+  removeKey = false;
+  let view;
+  try {
+    view = await (await fetch("/api/settings")).json();
+  } catch {
+    setSettingsStatus("Couldn't load settings.", "err");
+    settingsDlg.showModal();
+    return;
+  }
+  settingsForm.contact.value = view.contact || "";
+  settingsForm.ticketmaster_api_key.value = "";
+  settingsForm.ticketmaster_api_key.type = "password";
+  $("#tm-show").textContent = "Show";
+  $("#tm-saved").textContent = view.ticketmaster.set ? `(saved, ending ${view.ticketmaster.hint})` : "(not set)";
+  $("#tm-remove").hidden = !view.ticketmaster.set;
+  $("#settings-where").textContent = `Version ${view.version} · saved in ${view.settings_path}`;
+  settingsDlg.showModal();
+  settingsForm.contact.focus();
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-open-settings]")) openSettings();
+  else if (e.target.closest("[data-close-settings]")) settingsDlg.close();
+});
+
+$("#tm-show").addEventListener("click", () => {
+  const input = settingsForm.ticketmaster_api_key;
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  $("#tm-show").textContent = show ? "Hide" : "Show";
+  $("#tm-show").setAttribute("aria-pressed", String(show));
+});
+
+$("#tm-remove").addEventListener("click", () => {
+  removeKey = true;
+  settingsForm.ticketmaster_api_key.value = "";
+  setSettingsStatus("The saved Ticketmaster key will be removed when you save.");
+});
+
+settingsForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = { contact: settingsForm.contact.value.trim() };
+  const key = settingsForm.ticketmaster_api_key.value.trim();
+  if (key) body.ticketmaster_api_key = key;
+  else if (removeKey) body.ticketmaster_api_key = "";
+  const save = $("#settings-save");
+  save.disabled = true;
+  save.classList.add("is-loading");
+  setSettingsStatus(key ? "Checking the key with Ticketmaster…" : "Saving…");
+  try {
+    const res = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : data.detail;
+      throw new Error(detail || `Couldn't save (${res.status})`);
+    }
+    applySettingsView(data);
+    const note = data.ticketmaster_check === "valid" ? " Ticketmaster key verified."
+      : data.ticketmaster_check === "unreachable" ? " Couldn't reach Ticketmaster to check the key; it was saved anyway." : "";
+    setSettingsStatus(`Saved.${note} Build the forecast again to use the new settings.`, "ok");
+    setTimeout(() => { if (settingsDlg.open) settingsDlg.close(); }, data.ticketmaster_check === "unreachable" ? 2600 : 1400);
+  } catch (err) {
+    setSettingsStatus(err.message, "err");
+  } finally {
+    save.disabled = false;
+    save.classList.remove("is-loading");
+  }
+});
+
 // ---------- boot ----------
 
 let resizeTimer;

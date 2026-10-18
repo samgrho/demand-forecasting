@@ -99,6 +99,10 @@ class PoliteFetcher:
     def ua_token(self) -> str:
         return self.settings.app_name.split("/")[0]
 
+    def refresh_identity(self) -> None:
+        """Re-read the User-Agent after the contact setting changes."""
+        self._client.headers["User-Agent"] = self.settings.user_agent
+
     async def aclose(self) -> None:
         await self._client.aclose()
 

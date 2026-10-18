@@ -58,7 +58,7 @@ async def run_forecast(fetcher: PoliteFetcher, req: ForecastRequest, today: date
     if req.start < today:
         warnings.append("Part of the range is in the past; ticketing sources only list upcoming events.")
     if not settings.contact:
-        warnings.append("SCRAPER_CONTACT is not set. Add an email or URL to .env so site operators can reach you.")
+        warnings.append("Add your contact email in Settings so the sites this app reads can reach you if they need to.")
 
     results = await asyncio.gather(
         holiday_signals(fetcher, loc, req.start, req.end, trace),

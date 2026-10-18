@@ -6,29 +6,68 @@ date range. The dashboard shows a daily demand index, the busiest stretches,
 and the events behind them. **Every event or travel claim links to the page it
 came from**, with the time it was fetched, so you can verify it.
 
-## Quick start (Windows)
+## Install (Windows desktop app)
 
-Double-click **`launch.bat`**. On the first run it creates the virtual
-environment, installs dependencies and creates `.env` from `.env.example`.
-It then starts the server in a minimized window and opens the dashboard.
-Double-click **`terminate.bat`** to stop the server.
-(`launch.bat --no-browser` starts it without opening a browser tab.)
+Run **`HotelDemandForecaster-Setup-<version>.exe`**. It installs for the current
+user (no administrator rights needed) and adds a Start-menu shortcut. The app
+opens in its own window; source links open in your normal browser.
 
-Or manually, in PowerShell:
+On first launch, open **Settings** (the gear, top right) and add:
+
+- **Contact email**: sent with each request so site operators can reach you.
+  OpenStreetMap and Wikimedia ask for this.
+- **Ticketmaster API key** (optional, free): sign up at
+  [developer.ticketmaster.com](https://developer.ticketmaster.com/) and copy the
+  *Consumer Key* from My Apps. It is checked with Ticketmaster when you save,
+  and the full key is never shown back in the app.
+
+Where things are kept (both survive uninstall/reinstall):
+
+| What | Where |
+|---|---|
+| Settings | `%APPDATA%\HotelDemandForecaster\settings.json` |
+| Response cache, window storage, log (`app.log`) | `%LOCALAPPDATA%\HotelDemandForecaster\` |
+
+The window uses the Microsoft Edge WebView2 Runtime, which is built into
+Windows 11. On Windows 10 the installer warns if it's missing.
+
+The installer isn't code-signed, so Windows SmartScreen will say "Windows
+protected your PC" the first time; choose **More info → Run anyway**.
+
+### Building the installer
+
+```powershell
+build.bat
+```
+
+This runs the tests, bundles the app with PyInstaller into
+`dist\HotelDemandForecaster\`, and compiles `packaging\installer.iss` with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) into
+`dist\installer\HotelDemandForecaster-Setup-<version>.exe`. Install Inno Setup
+with `winget install JRSoftware.InnoSetup`. Bump the version in
+`app/__init__.py` before building a release. Build files live in `packaging/`.
+
+## Running from source
+
+Double-click **`launch.bat`** to serve the dashboard at http://localhost:8000 in
+your browser, and **`terminate.bat`** to stop it. Or open the desktop window
+from source with `.venv\Scripts\python -m app.desktop`. On the first run
+`launch.bat` creates the virtual environment, installs dependencies and creates
+`.env` from `.env.example`.
+
+Manually, in PowerShell:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-copy .env.example .env    # then edit .env
 .venv\Scripts\python -m uvicorn app.main:app --port 8000
 ```
 
-Open http://localhost:8000. Run the tests with `.venv\Scripts\python -m pytest`.
+Run the tests with `.venv\Scripts\python -m pytest`.
 
-In `.env`:
-
-- `SCRAPER_CONTACT`: an email address or URL where site operators can reach you. It is sent in the User-Agent header.
-- `TICKETMASTER_API_KEY`: a free key from [developer.ticketmaster.com](https://developer.ticketmaster.com/). Optional, but it is the richest event source.
+From source, settings are saved to `data\settings.json`. Values in `.env`
+(`SCRAPER_CONTACT`, `TICKETMASTER_API_KEY`) are used as defaults until you
+save something in Settings.
 
 ## Where the data comes from
 
@@ -141,7 +180,9 @@ it as an early warning of which dates to check, not a booking forecast.
 
 ```
 app/
-  main.py          FastAPI app: dashboard page + POST /api/forecast
+  main.py          FastAPI app: dashboard page, /api/forecast, /api/settings
+  desktop.py       desktop entry: local server + native window
+  config.py        settings (per-user settings.json, .env defaults from source)
   service.py       runs all sources concurrently, then scores
   forecast.py      demand index, busy periods, duplicate merging
   fetcher.py       polite HTTP: robots.txt, throttling, caching, redaction
@@ -149,5 +190,6 @@ app/
   sources/         geocode, holidays, ticketmaster, wikidata, pageviews, webpages,
                    enrich (venue capacity + artist popularity)
   templates/, static/   dashboard (vanilla JS + SVG, light/dark)
+packaging/         PyInstaller spec, Inno Setup script, icon, build.ps1
 tests/             offline tests (HTTP mocked with respx)
 ```
